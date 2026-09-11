@@ -1,0 +1,84 @@
+= Redmine Archived Projects API
+
+Lets Redmine administrators read archived projects (status +9+) through the
+REST API. By default, Redmine's +/projects+ API only ever returns active
+(+1+) and closed (+5+) projects; there is no way to list or fetch an archived
+project, even as an administrator.
+
+This plugin does not change any core file. It patches +ProjectQuery+,
++ProjectsController+ and +ProjectsHelper+ in memory (at boot, via
++Module#prepend+ for the first two and method aliasing for the helper) so
+that:
+
+* +GET /projects.{json,xml}+ accepts archived projects in its +status+
+  filter.
+* +GET /projects/:id.{json,xml}+ returns +200+ (instead of +403+) for an
+  archived project.
+
+== Access
+
+*Administrators only.* Archived projects have no member roles (Redmine
+clears them - +User#roles_for_project+ returns <tt>[]</tt> for an archived project),
+so there is no permission-based way to decide who "should" see one; this
+plugin mirrors how Redmine's own admin project list already exposes archived
+projects, and does not touch permission or role logic anywhere else. A
+non-admin or anonymous request behaves exactly as it does today: archived
+projects never appear in listings, and a direct +GET+ on one still returns
++403+.
+
+The plugin is entirely *read-only* for archived projects. No write action
+(+update+, +close+, +reopen+, +archive+, +unarchive+, +destroy+,
++bulk_destroy+, memberships, wiki, etc.) is affected; all of those keep
+returning exactly what core returns today.
+
+== Usage
+
+  GET /projects.json                  # unchanged: active + closed only
+  GET /projects.json?status=9         # archived projects only
+  GET /projects.json?status=9|1       # archived + active
+  GET /projects.json?status=*         # active + closed + archived
+  GET /projects/42.json               # 200 if project 42 is archived and you are admin
+
++status=*+ is interpreted only for an administrator's API request; for any
+other caller (including admins over HTML) Redmine's own filter behaviour is
+unchanged.
+
+Projects with status +10+ (+STATUS_SCHEDULED_FOR_DELETION+ - queued for
+asynchronous destruction by +DestroyProjectJob+) are never returned, even
+with +status=*+.
+
+== Known limitations
+
+<tt>?include=</tt> on an archived project only returns data for
++enabled_modules+. +trackers+, +issue_categories+, +time_entry_activities+
+and +issue_custom_fields+ are gated in core on the +:view_issues+ /
++:view_time_entries+ permissions, which no one - including an admin - holds
+on an archived project (+Project#allows_to?+ returns +false+ outright for any
+action once a project is archived); +trackers+ is additionally filtered at
+the model level by +Project#rolled_up_trackers_base_scope+. Those keys are
+therefore omitted from the response entirely (the same way core already
+omits them for a user without +:view_issues+ on a non-archived project),
+rather than being returned as empty arrays. Fixing this would require
+patching those permission and model methods globally, which would weaken the
+"no action on an archived project" guarantee everywhere else in Redmine -
+deliberately out of scope for this plugin. Inline +custom_fields+ (not the
+<tt>?include=</tt> parameter) are returned normally.
+
+== Requirements
+
+Redmine >= 6.0.
+
+== Installation
+
+  cd redmine
+  git clone <this plugin> plugins/redmine_archived_projects_api
+  bundle exec rake redmine:plugins:migrate NAME=redmine_archived_projects_api RAILS_ENV=production
+  sudo systemctl restart redmine   # or however your Redmine is served
+
+There is no database migration; the step above is included for the
+convention only.
+
+== Running the tests
+
+  bundle exec rake redmine:plugins:test:integration NAME=redmine_archived_projects_api RAILS_ENV=test
+  bundle exec rake redmine:plugins:test:units NAME=redmine_archived_projects_api RAILS_ENV=test

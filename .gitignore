@@ -1,0 +1,10 @@
+.DS_Store
+.buildpath
+coverage/
+.project
+.settings/
+/gitconfig
+/.devtest/
+.idea/
+.vscode/
+tmp/
